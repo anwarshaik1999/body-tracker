@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Local Body Tracker</title>
+  <meta name="description" content="Private, local-first body measurements tracker with Excel import/export, charts, and a 3D body view." />
+  <style>
+    :root{
+      --bg:#0b0d10; --card:#11151a; --ink:#e9eef5; --muted:#a8b3c7; --acc:#00ffc6; --line:#1c222b;
+      --good:#19c37d; --warn:#f0b429; --bad:#f56565;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.45 system-ui,Segoe UI,Inter,Arial}
+    header{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+    h1{font-size:18px;margin:0}
+    .tag{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+    main{max-width:1200px;margin:0 auto;padding:16px;display:grid;grid-template-columns: 1fr;gap:16px}
+    @media (min-width: 1100px){ main{grid-template-columns: 400px 1fr} }
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+    .card h2{font-size:14px;margin:0 0 10px 0;color:var(--muted);letter-spacing:.2px}
+    .row{display:grid;grid-template-columns: repeat(2,1fr);gap:10px}
+    .row3{display:grid;grid-template-columns: repeat(3,1fr);gap:10px}
+    label{font-size:12px;color:var(--muted)}
+    input,textarea,button,select{
+      width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:#0f1318;color:var(--ink);
+      outline:none
+    }
+    textarea{min-height:60px;resize:vertical}
+    button{cursor:pointer;border:1px solid #263041;background:#111922}
+    button.primary{background:var(--acc);color:#041014;border:none}
+    button.ghost{background:transparent}
+    .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+    table{width:100%;border-collapse:collapse;border:1px solid var(--line);font-size:13px}
+    th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+    tr:hover{background:#0f141a}
+    .muted{color:var(--muted)}
+    #viewer{height:360px;border-radius:12px;border:1px solid var(--line)}
+    .kpi{display:flex;gap:14px;flex-wrap:wrap}
+    .kpi .item{flex:1;min-width:140px;background:#0f141a;border:1px solid var(--line);padding:10px;border-radius:10px}
+    .kpi .val{font-size:18px}
+    .footer{color:var(--muted);font-size:12px;text-align:center;padding:8px 0}
+    .danger{color:var(--bad)}
+    .ok{color:var(--good)}
+    .notice{border-left:3px solid var(--acc);padding-left:10px}
+    .hl{color:var(--acc)}
+  </style>
+  <!-- Charting + Excel + 3D (CDN). You can self-host these files in the repo for zero third-party requests. -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.35.2/plotly.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Local Body Tracker</h1>
+  <span class="tag">Private • Local-first • Offline-friendly</span>
+</header>
+
+<main>
+  <!-- Left column: data entry, import/export -->
+  <section class="card">
+    <h2>Add / Edit Entry</h2>
+    <div class="row">
+      <div>
+        <label>Date</label>
+        <input type="date" id="date">
+      </div>
+      <div>
+        <label>Weight (kg)</label>
+        <input type="number" step="0.1" id="weight" placeholder="e.g., 75.2">
+      </div>
+    </div>
+    <div class="row3" style="margin-top:8px">
+      <div><label>Neck</label><input type="number" step="0.1" id="neck"></div>
+      <div><label>Chest</label><input type="number" step="0.1" id="chest"></div>
+      <div><label>Waist</label><input type="number" step="0.1" id="waist"></div>
+    </div>
+    <div class="row3" style="margin-top:8px">
+      <div><label>Hips</label><input type="number" step="0.1" id="hips"></div>
+      <div><label>Bicep L</label><input type="number" step="0.1" id="bicepL"></div>
+      <div><label>Bicep R</label><input type="number" step="0.1" id="bicepR"></div>
+    </div>
+    <div class="row3" style="margin-top:8px">
+      <div><label>Thigh L</label><input type="number" step="0.1" id="thighL"></div>
+      <div><label>Thigh R</label><input type="number" step="0.1" id="thighR"></div>
+      <div><label>Body Fat %</label><input type="number" step="0.1" id="bf"></div>
+    </div>
+    <div style="margin-top:8px">
+      <label>Notes</label>
+      <textarea id="notes" placeholder="Sleep, soreness, diet details, etc."></textarea>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="primary" id="saveBtn">Save Entry</button>
+      <button id="clearBtn" class="ghost">Clear Form</button>
+      <button id="deleteBtn" class="ghost danger" disabled>Delete Selected</button>
+    </div>
+
+    <hr style="border:0;border-top:1px solid var(--line);margin:14px 0" />
+
+    <h2>Data • Import / Export</h2>
+    <div class="btnrow">
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+      <button id="importBtn">Import Excel</button>
+      <button id="exportBtn">Download Excel</button>
+      <button id="saveLocalBtn">Save to Browser</button>
+      <button id="loadLocalBtn">Load from Browser</button>
+      <button id="newBtn">New Empty Workbook</button>
+    </div>
+    <p class="muted notice" style="margin-top:10px">
+      100% client-side. No servers. If you want zero third-party requests, self-host the JS libs in your repo.
+    </p>
+  </section>
+
+  <!-- Right column: charts + 3D -->
+  <section class="card">
+    <h2>Dashboard</h2>
+    <div class="kpi" id="kpis">
+      <div class="item">
+        <div class="muted">Latest Weight</div>
+        <div class="val" id="kpi-weight">–</div>
+      </div>
+      <div class="item">
+        <div class="muted">Waist Δ (30d)</div>
+        <div class="val" id="kpi-waist">–</div>
+      </div>
+      <div class="item">
+        <div class="muted">Entries</div>
+        <div class="val" id="kpi-entries">0</div>
+      </div>
+    </div>
+    <div id="chart1" style="height:260px;margin-top:12px"></div>
+    <div id="chart2" style="height:260px;margin-top:12px"></div>
+
+    <h2 style="margin-top:16px">3D Body (Measurement Rings)</h2>
+    <div id="viewer"></div>
+    <p class="muted" style="margin-top:8px">
+      Rings reflect your latest <span class="hl">chest/waist/hips</span> girths. They scale as your measurements change.
+    </p>
+  </section>
+
+  <section class="card" style="grid-column: 1 / -1;">
+    <h2>Measurements Table</h2>
+    <div style="overflow:auto;max-height:360px;border:1px solid var(--line);border-radius:10px">
+      <table id="dataTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>Weight</th><th>Neck</th><th>Chest</th><th>Waist</th><th>Hips</th>
+            <th>Bicep L</th><th>Bicep R</th><th>Thigh L</th><th>Thigh R</th><th>BodyFat%</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin-top:6px">Tip: Click a row to edit it. “Delete Selected” removes it.</p>
+  </section>
+</main>
+
+<div class="footer">MIT License • Built for privacy & control</div>
+
+<script>
+/*** ---------- Simple Local Data Model ---------- ***/
+const HEADERS = ["Date","Weight","Neck","Chest","Waist","Hips","BicepL","BicepR","ThighL","ThighR","BodyFat","Notes"];
+let DATA = [];              // Array of rows (objects)
+let selectedIndex = -1;     // Currently selected row for editing
+
+function todayISO(){
+  const d=new Date(); const m=(d.getMonth()+1+"").padStart(2,"0"); const day=(d.getDate()+"").padStart(2,"0");
+  return d.getFullYear()+"-"+m+"-"+day;
+}
+document.getElementById('date').value = todayISO();
+
+/*** ---------- UI Helpers ---------- ***/
+function getForm(){
+  const g = id => document.getElementById(id).value.trim();
+  const num = v => v==="" ? null : parseFloat(v);
+  return {
+    Date: g('date') || todayISO(),
+    Weight: num(g('weight')),
+    Neck: num(g('neck')),
+    Chest: num(g('chest')),
+    Waist: num(g('waist')),
+    Hips: num(g('hips')),
+    BicepL: num(g('bicepL')),
+    BicepR: num(g('bicepR')),
+    ThighL: num(g('thighL')),
+    ThighR: num(g('thighR')),
+    BodyFat: num(g('bf')),
+    Notes: g('notes') || ""
+  };
+}
+function setForm(obj){
+  const set=(id,val)=>{document.getElementById(id).value = (val==null?"":val)};
+  document.getElementById('date').value = obj.Date || todayISO();
+  set('weight',obj.Weight); set('neck',obj.Neck); set('chest',obj.Chest); set('waist',obj.Waist);
+  set('hips',obj.Hips); set('bicepL',obj.BicepL); set('bicepR',obj.BicepR);
+  set('thighL',obj.ThighL); set('thighR',obj.ThighR); set('bf',obj.BodyFat); set('notes',obj Notes);
+}
+function clearForm(){
+  selectedIndex = -1;
+  document.getElementById('deleteBtn').disabled = true;
+  setForm({Date: todayISO(), Weight:"", Neck:"", Chest:"", Waist:"", Hips:"", BicepL:"", BicepR:"", ThighL:"", ThighR:"", BodyFat:"", Notes:""});
+}
+
+/*** ---------- Table Render ---------- ***/
+function renderTable(){
+  // Sort by date ascending
+  DATA.sort((a,b) => new Date(a.Date) - new Date(b.Date));
+  const tb = document.querySelector('#dataTable tbody');
+  tb.innerHTML = "";
+  DATA.forEach((row,idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.Date||""}</td><td>${fmt(row.Weight)}</td><td>${fmt(row.Neck)}</td>
+      <td>${fmt(row.Chest)}</td><td>${fmt(row.Waist)}</td><td>${fmt(row.Hips)}</td>
+      <td>${fmt(row.BicepL)}</td><td>${fmt(row.BicepR)}</td><td>${fmt(row.ThighL)}</td>
+      <td>${fmt(row.ThighR)}</td><td>${fmt(row.BodyFat)}</td><td>${escapeHtml(row.Notes||"")}</td>`;
+    tr.addEventListener('click', ()=>{
+      selectedIndex = idx;
+      document.getElementById('deleteBtn').disabled = false;
+      setForm(row);
+    });
+    tb.appendChild(tr);
+  });
+  updateKPIs();
+}
+function fmt(n){ return (n==null||Number.isNaN(n))? "" : (""+n); }
+function escapeHtml(s){ return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m])); }
+
+/*** ---------- Save / Load ---------- ***/
+function saveToLocal(){
+  localStorage.setItem('body_tracker_data', JSON.stringify(DATA));
+  alert("Saved locally in your browser.");
+}
+function loadFromLocal(){
+  const raw = localStorage.getItem('body_tracker_data');
+  if(!raw){ alert("No saved data found."); return; }
+  try{
+    DATA = JSON.parse(raw) || [];
+    renderTable(); renderCharts(); update3DRings();
+  }catch(e){ alert("Could not load: "+e.message); }
+}
+
+/*** ---------- Excel Import/Export ---------- ***/
+function toSheetRows(){
+  // Make header row + data rows (array of arrays)
+  const rows = [HEADERS];
+  DATA.forEach(r=>{
+    rows.push([r.Date,r.Weight,r.Neck,r.Chest,r.Waist,r.Hips,r.BicepL,r.BicepR,r.ThighL,r.ThighR,r.BodyFat,r.Notes]);
+  });
+  return rows;
+}
+function exportExcel(){
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(toSheetRows());
+  XLSX.utils.book_append_sheet(wb, ws, "Measurements");
+  XLSX.writeFile(wb, "body_measurements.xlsx");
+}
+function importExcel(file){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, {type:'array'});
+    const first = wb.SheetNames[0];
+    const ws = wb.Sheets[first];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:""});
+    // Flexible header mapping
+    DATA = json.map(row=>{
+      const map = (kArr)=> kArr.find(k => Object.keys(row).includes(k)) || null;
+      const v = (kArr)=> (map(kArr)? row[map(kArr)] : "");
+      const num = x => (x===""? null : Number(x));
+      return {
+        Date: (v(["Date","date","DATE"]) || "").toString().slice(0,10),
+        Weight: num(v(["Weight","weight","Wt","KG"])),
+        Neck: num(v(["Neck"])),
+        Chest: num(v(["Chest"])),
+        Waist: num(v(["Waist"])),
+        Hips: num(v(["Hips","Hip"])),
+
+        BicepL: num(v(["BicepL","Bicep L","Left Bicep"])),
+        BicepR: num(v(["BicepR","Bicep R","Right Bicep"])),
+
+        ThighL: num(v(["ThighL","Thigh L","Left Thigh"])),
+        ThighR: num(v(["ThighR","Thigh R","Right Thigh"])),
+
+        BodyFat: num(v(["BodyFat","Body Fat","BF%"])),
+        Notes: (v(["Notes","Note"]) || "").toString()
+      };
+    });
+    renderTable(); renderCharts(); update3DRings();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/*** ---------- Charts ---------- ***/
+function renderCharts(){
+  // time series arrays
+  const x = DATA.map(r=> r.Date);
+  const weight = DATA.map(r=> r.Weight);
+  const waist = DATA.map(r=> r.Waist);
+  const chest = DATA.map(r=> r.Chest);
+
+  Plotly.newPlot('chart1', [
+    {x, y: weight, mode:'lines+markers', name:'Weight (kg)'},
+    {x, y: waist,  mode:'lines+markers', name:'Waist'}
+  ], {
+    margin:{l:40,r:20,t:10,b:30}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    font:{color:'#e9eef5'}, xaxis:{gridcolor:'#1c222b'}, yaxis:{gridcolor:'#1c222b'}
+  }, {displayModeBar:false, responsive:true});
+
+  Plotly.newPlot('chart2', [
+    {x, y: chest, mode:'lines+markers', name:'Chest'}
+  ], {
+    margin:{l:40,r:20,t:10,b:30}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    font:{color:'#e9eef5'}, xaxis:{gridcolor:'#1c222b'}, yaxis:{gridcolor:'#1c222b'}
+  }, {displayModeBar:false, responsive:true});
+}
+
+function updateKPIs(){
+  document.getElementById('kpi-entries').textContent = DATA.length;
+  if(DATA.length){
+    const last = DATA[DATA.length-1];
+    document.getElementById('kpi-weight').textContent = (last.Weight ?? "–");
+    // 30-day waist delta
+    const cutoff = new Date(new Date(last.Date).getTime() - 30*864e5);
+    const earlier = [...DATA].filter(r => new Date(r.Date) <= cutoff && r.Waist!=null).pop();
+    let delta = "–";
+    if(earlier && last.Waist!=null){
+      const d = (last.Waist - earlier.Waist).toFixed(1);
+      delta = (d>0? "+"+d : d);
+    }
+    document.getElementById('kpi-waist').textContent = delta;
+    document.getElementById('kpi-waist').className = "val " + (delta==="–" ? "" : (parseFloat(delta)<=0 ? "ok" : "danger"));
+  }else{
+    document.getElementById('kpi-weight').textContent = "–";
+    document.getElementById('kpi-waist').textContent = "–";
+  }
+}
+
+/*** ---------- 3D Body (Three.js) ---------- ***/
+// Simple parametric mannequin + three “girth rings” that resize to chest/waist/hips
+let scene, camera, renderer, rings = {};
+function init3D(){
+  const el = document.getElementById('viewer');
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(el.clientWidth, el.clientHeight);
+  el.innerHTML=""; el.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0d10);
+  camera = new THREE.PerspectiveCamera(35, el.clientWidth/el.clientHeight, 0.1, 100);
+  camera.position.set(0, 1.5, 5);
+
+  const light = new THREE.DirectionalLight(0xffffff, 1.0);
+  light.position.set(3,4,5); scene.add(light);
+  scene.add(new THREE.AmbientLight(0x8899aa, 0.6));
+
+  // Build a simple mannequin (torso + head + limbs)
+  const mat = new THREE.MeshStandardMaterial({color:0x2a2f38, metalness:0.2, roughness:0.7});
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.6, 1.6, 24), mat);
+  torso.position.y = 1.4; scene.add(torso);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 24, 16), mat);
+  head.position.y = 2.5; scene.add(head);
+
+  const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.4, 24), mat);
+  pelvis.position.y = 0.6; scene.add(pelvis);
+
+  // Legs
+  const legMat = mat;
+  const l1 = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.3,1.0,20), legMat);
+  l1.position.set(-0.35,0.0,0); scene.add(l1);
+  const l2 = l1.clone(); l2.position.x= 0.35; scene.add(l2);
+
+  // Arms
+  const a1 = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,1.1,20), legMat);
+  a1.position.set(-1.0,1.55,0); a1.rotation.z = Math.PI/12; scene.add(a1);
+  const a2 = a1.clone(); a2.position.x = 1.0; a2.rotation.z = -Math.PI/12; scene.add(a2);
+
+  // Rings (torus) for Chest, Waist, Hips
+  rings.chest = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.03, 12, 64), new THREE.MeshStandardMaterial({color:0x00ffc6, emissive:0x003a2f, emissiveIntensity:0.7}));
+  rings.chest.rotation.x = Math.PI/2; rings.chest.position.y = 1.8; scene.add(rings.chest);
+
+  rings.waist = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.03, 12, 64), new THREE.MeshStandardMaterial({color:0x5aa9ff, emissive:0x0a2e66, emissiveIntensity:0.6}));
+  rings.waist.rotation.x = Math.PI/2; rings.waist.position.y = 1.25; scene.add(rings.waist);
+
+  rings.hips = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.03, 12, 64), new THREE.MeshStandardMaterial({color:0xff7ab6, emissive:0x661236, emissiveIntensity:0.6}));
+  rings.hips.rotation.x = Math.PI/2; rings.hips.position.y = 0.8; scene.add(rings.hips);
+
+  window.addEventListener('resize', ()=>{
+    renderer.setSize(el.clientWidth, el.clientHeight);
+    camera.aspect = el.clientWidth/el.clientHeight; camera.updateProjectionMatrix();
+  });
+
+  function animate(){
+    requestAnimationFrame(animate);
+    scene.rotation.y += 0.002; // gentle spin
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+function circToRadius(circumference){
+  // Scale centimeters to scene units (roughly): radius = (circ / 2π) * scale
+  const radius = (circumference / (2 * Math.PI)) * 0.02; // 0.02 ~ scene scale factor
+  return Math.max(0.1, Math.min(radius, 2.0));
+}
+function update3DRings(){
+  if(!DATA.length || !rings.chest) return;
+  const last = DATA[DATA.length-1];
+  if(last.Chest) rings.chest.geometry = new THREE.TorusGeometry(circToRadius(last.Chest), 0.03, 12, 64);
+  if(last.Waist) rings.waist.geometry = new THREE.TorusGeometry(circToRadius(last.Waist), 0.03, 12, 64);
+  if(last.Hips)  rings.hips.geometry  = new THREE.TorusGeometry(circToRadius(last.Hips),  0.03, 12, 64);
+}
+
+/*** ---------- Event Wiring ---------- ***/
+document.getElementById('saveBtn').addEventListener('click', ()=>{
+  const row = getForm();
+  if(selectedIndex>=0){ DATA[selectedIndex] = row; }
+  else{ DATA.push(row); }
+  clearForm(); renderTable(); renderCharts(); update3DRings();
+});
+document.getElementById('clearBtn').addEventListener('click', clearForm);
+document.getElementById('deleteBtn').addEventListener('click', ()=>{
+  if(selectedIndex>=0){ DATA.splice(selectedIndex,1); selectedIndex=-1; renderTable(); renderCharts(); update3DRings(); clearForm(); }
+});
+document.getElementById('importBtn').addEventListener('click', ()=> document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', (e)=>{
+  const f = e.target.files[0]; if(f) importExcel(f);
+  e.target.value = "";
+});
+document.getElementById('exportBtn').addEventListener('click', exportExcel);
+document.getElementById('saveLocalBtn').addEventListener('click', saveToLocal);
+document.getElementById('loadLocalBtn').addEventListener('click', loadFromLocal);
+document.getElementById('newBtn').addEventListener('click', ()=>{
+  if(confirm("Start a new empty workbook? This won't delete your browser-saved copy.")){
+    DATA = []; renderTable(); renderCharts(); update3DRings(); clearForm();
+  }
+});
+
+// Friendly reminder before leaving if unsaved changes exist
+window.addEventListener('beforeunload', (e)=>{
+  if(DATA.length){
+    e.preventDefault(); e.returnValue = "You have data. Consider Download Excel or Save to Browser.";
+  }
+});
+
+// Boot
+init3D();
+renderTable();
+renderCharts();
+</script>
+
+<script>
+// Optional offline support (service worker)
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
