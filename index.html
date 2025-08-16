@@ -155,9 +155,10 @@
   </section>
 </main>
 
-<div class="footer">MIT License • Built for privacy & control</div>
+  <div class="footer">MIT License • Built for privacy & control</div>
 
-<script>
+  <script src="./circToRadius.js"></script>
+  <script>
 /*** ---------- Simple Local Data Model ---------- ***/
 const HEADERS = ["Date","Weight","Neck","Chest","Waist","Hips","BicepL","BicepR","ThighL","ThighR","BodyFat","Notes"];
 let DATA = [];              // Array of rows (objects)
@@ -398,12 +399,7 @@ function init3D(){
   }
   animate();
 }
-function circToRadius(circumference){
-  // Scale centimeters to scene units (roughly): radius = (circ / 2π) * scale
-  const radius = (circumference / (2 * Math.PI)) * 0.02; // 0.02 ~ scene scale factor
-  return Math.max(0.1, Math.min(radius, 2.0));
-}
-function update3DRings(){
+  function update3DRings(){
   if(!DATA.length || !rings.chest) return;
   const last = DATA[DATA.length-1];
   if(last.Chest) rings.chest.geometry = new THREE.TorusGeometry(circToRadius(last.Chest), 0.03, 12, 64);
